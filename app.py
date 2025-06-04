@@ -8,6 +8,7 @@ from scripts.calc import (
     calc_machine_costs
 )
 from scripts.database import Session
+from scripts.utils import format_de
 
 st.set_page_config(page_title="Kostenträgerrechnung", layout="wide")
 st.title("Kostenträgerrechnung")
@@ -49,15 +50,14 @@ elif mode == "Nach Auftrag":
         st.table([
             {
                 "Teil_ID": p["teil_id"],
-                "Materialkosten": f"{p['details']['direct_material']:.2f} €",
-                "Fertigungskosten": f"{p['details']['direct_production']:.2f} €",
-                "Total (€)": f"{p['total_cost']:.2f}"
+                "Materialkosten": format_de(p['details']['direct_material']) + " €",
+                "Fertigungskosten": format_de(p['details']['direct_production']) + " €",
+                "Total (€)": format_de(p['total_cost']) + " €"
             }
             for p in oc["positions"]
         ])
         st.markdown("---")
-        st.markdown(f"## Summe: {oc['order_total']:.2f} €")
-
+        st.markdown(f"## Summe: {format_de(oc['order_total'])} €")
 
 # else:  # По центрам затрат (Maschinen)
 #     @st.cache_data

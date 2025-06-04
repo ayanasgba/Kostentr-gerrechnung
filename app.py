@@ -7,6 +7,7 @@ from scripts.calc import (
     calc_order_cost,
     calc_machine_costs
 )
+from scripts.database import Session
 
 st.set_page_config(page_title="Kostenträgerrechnung", layout="wide")
 st.title("Kostenträgerrechnung")
@@ -22,8 +23,11 @@ if mode == "Nach Position (Teil)":
         return get_all_teil_ids()
     ids = load_ids()
     teil = st.selectbox("Wählen Sie die Teile-ID aus", ids)
+    teil = str(teil).zfill(7)
     if st.button("Berechnen"):
-        res = calc_cost(teil)
+        session = Session()
+        res = calc_cost(teil, session)
+        session.close()
         col1, col2 = st.columns(2)
         col1.metric("Direkte Materialkosten",        f"{res['k_mat']:.3f} €")
         col1.metric("Materialgemeinkosten (10%)",   f"{res['mgk']:.2f} €")
@@ -43,8 +47,12 @@ elif mode == "Nach Auftrag":
         oc = calc_order_cost(auftrag)
         st.subheader(f"Позиции заказа {auftrag}")
         st.table([
-            {"Teil_ID": p["teil_id"], "Materialkosten": f"{p['k_mat']:.2f} €",
-             "Fertigungskosten": f"{p['k_fert']:.2f} €", "Total (€)": f"{p['total']:.2f}"}
+            {
+                "Teil_ID": p["teil_id"],
+                "Materialkosten": f"{p['details']['direct_material']:.2f} €",
+                "Fertigungskosten": f"{p['details']['direct_production']:.2f} €",
+                "Total (€)": f"{p['total_cost']:.2f}"
+            }
             for p in oc["positions"]
         ])
         st.markdown("---")

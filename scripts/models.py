@@ -2,6 +2,7 @@ from sqlalchemy import (
     Column, String, Float, ForeignKey
 )
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship
 
 Base = declarative_base()
 
@@ -31,13 +32,14 @@ class Teil(Base):
     k_mat   = Column('K_mat', Float)
     k_fert  = Column('K_fert', Float)
     anzahl  = Column('Anzahl', Float)
-    mat     = Column('Mat', String, ForeignKey('material."Nr"'))
+    mat     = Column('Mat', String, ForeignKey('material.Nr'))
+
+    material_obj = relationship("Material", foreign_keys=[mat], lazy="joined")
 
 class Arbeitsplan(Base):
     __tablename__ = 'arbeitsplan'
     teil_id  = Column('teil_id', String, primary_key=True)
     ag_nr    = Column('ag_nr',     String, primary_key=True)
-    maschine = Column('maschine',  String, ForeignKey('maschine."Nr"'))
+    maschine = Column('maschine',  String, ForeignKey('maschine.Nr'))
     # Подставляем точное имя столбца из БД:
     dauer    = Column('dauer (min)', Float)
-

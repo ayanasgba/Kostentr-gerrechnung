@@ -3,7 +3,7 @@ from sqlalchemy import create_engine
 
 EXCEL_PATH = 'data/source.xlsx'
 # URL в формате: postgresql+psycopg2://<user>:<password>@<host>:<port>/<dbname>
-DB_URL = 'postgresql+psycopg2://admin:admin123@localhost:5432/kostcalc'
+DB_URL = 'postgresql+psycopg2://postgres:postgresql@localhost:5433/kostcalc'
 
 def main():
     engine = create_engine(DB_URL)

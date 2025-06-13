@@ -1,11 +1,13 @@
 import streamlit as st
 import pandas as pd
+
 from scripts.calc import (
     get_all_teil_ids,
     calc_cost,
     get_all_auftrag_ids,
     calc_order_cost,
-    calc_machine_costs
+    calc_machine_costs,
+    calc_full_cost_structure
 )
 from scripts.database import Session
 from scripts.utils import format_de
@@ -15,8 +17,22 @@ st.title("Kostenträgerrechnung")
 
 mode = st.radio(
     "Bitte wählen Sie einen Modus",
-    ["Nach Position (Teil)", "Nach Auftrag"]
+    ["Nach Position (Teil)", "Nach Auftrag", "Detaillierte Tabelle nach Auftrag"]
 )
+
+def display_structure(structure, level=0):
+    indent = "&nbsp;" * 4 * level  # HTML-отступ
+    for teil in structure:
+        st.markdown(
+            f"{indent}- **Teil-ID**: {teil['teil_id']} | "
+            f"**Menge**: {teil['anzahl']} | "
+            f"**Einzelkosten**: {teil['kosten_pro_stk']:.2f} € | "
+            f"**Gesamt**: {teil['kosten_gesamt']:.2f} €",
+            unsafe_allow_html=True
+        )
+        if teil["struktur"]:
+            display_structure(teil["struktur"], level + 1)
+
 
 if mode == "Nach Position (Teil)":
     @st.cache_data
@@ -42,22 +58,30 @@ elif mode == "Nach Auftrag":
     @st.cache_data
     def load_orders():
         return get_all_auftrag_ids()
+
+
     orders = load_orders()
     auftrag = st.selectbox("Выберите номер заказа", orders)
+
     if st.button("Berechnen"):
         oc = calc_order_cost(auftrag)
-        st.subheader(f"Позиции заказа {auftrag}")
-        st.table([
-            {
-                "Teil_ID": p["teil_id"],
-                "Materialkosten": format_de(p['details']['direct_material']) + " €",
-                "Fertigungskosten": format_de(p['details']['direct_production']) + " €",
-                "Total (€)": format_de(p['total_cost']) + " €"
-            }
-            for p in oc["positions"]
-        ])
+        st.subheader(f"📦 Позиции заказа **{auftrag}**")
+
+        for p in oc["positions"]:
+            with st.expander(f"Teil {p['teil_id']} (x{p['amount']}) — Gesamt: {p['total_cost']:.2f} €"):
+                st.markdown(f"**Einzelpreis**: {p['cost_per_unit']:.2f} €")
+                st.markdown(f"**Direktmaterial**: {p['details']['direct_material']:.2f} €")
+                st.markdown(f"**Materialgemeinkosten (10%)**: {p['details']['material_overhead']:.2f} €")
+                st.markdown(f"**Direkte Fertigung**: {p['details']['direct_production']:.2f} €")
+                st.markdown(f"**Fertigungsgemeinkosten (10%)**: {p['details']['production_overhead']:.2f} €")
+                st.markdown(f"**Kosten Subkomponenten**: {p['details']['subcomponents_cost']:.2f} €")
+
+                if p["structure"]:
+                    st.markdown("**🔽 Struktur:**")
+                    display_structure(p["structure"])
+
         st.markdown("---")
-        st.markdown(f"## Summe: {format_de(oc['order_total'])} €")
+        st.markdown(f"## 💰 Gesamtkosten: {format_de(oc['order_total'])} €")
 
 # else:  # По центрам затрат (Maschinen)
 #     @st.cache_data
@@ -82,3 +106,17 @@ elif mode == "Nach Auftrag":
 #             )
 #             st.dataframe(df, use_container_width=True)
 #             st.bar_chart(df.set_index("Maschine")["Kosten (€)"])
+
+elif mode == "Detaillierte Tabelle nach Auftrag":
+    @st.cache_data
+    def load_orders():
+        return get_all_auftrag_ids()
+
+    orders = load_orders()
+    auftrag = st.selectbox("Wähle Auftrag für die detaillierte Tabelle", orders)
+
+    if st.button("Tabelle anzeigen"):
+        df = calc_full_cost_structure(auftrag)
+        st.subheader(f"Detaillierte Kostenstruktur für Auftrag {auftrag}")
+        st.dataframe(df, use_container_width=True)
+

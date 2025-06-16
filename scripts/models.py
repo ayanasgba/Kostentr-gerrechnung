@@ -1,10 +1,8 @@
 from sqlalchemy import (
     Column, String, Float, ForeignKey
 )
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-
-Base = declarative_base()
+from .database import Base
 
 class Auftrag(Base):
     __tablename__ = 'auftrag'
@@ -35,11 +33,17 @@ class Teil(Base):
     mat     = Column('Mat', String, ForeignKey('material.Nr'))
 
     material_obj = relationship("Material", foreign_keys=[mat], lazy="joined")
+    arbeitsplaene = relationship("Arbeitsplan", back_populates="teil", lazy="joined")
+
 
 class Arbeitsplan(Base):
     __tablename__ = 'arbeitsplan'
-    teil_id  = Column('teil_id', String, primary_key=True)
-    ag_nr    = Column('ag_nr',     String, primary_key=True)
-    maschine = Column('maschine',  String, ForeignKey('maschine.Nr'))
-    # Подставляем точное имя столбца из БД:
+
+    teil_id  = Column('teil_id', String, ForeignKey('teil.teil_id'), primary_key=True)
+    ag_nr    = Column('ag_nr', String, primary_key=True)
+    maschine = Column('maschine', String, ForeignKey('maschine.Nr'))
     dauer    = Column('dauer (min)', Float)
+
+    # Связь обратно на Teil
+    teil = relationship("Teil", back_populates="arbeitsplaene", lazy="joined")
+

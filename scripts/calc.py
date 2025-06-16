@@ -1,74 +1,83 @@
-from typing import List, Dict, Optional, Set
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import Session, joinedload
 from collections import defaultdict
+import pandas as pd
+from typing import List, Dict, Optional
 from .models import Auftrag, Material, Maschine, Teil, Arbeitsplan
 from .database import Session
-import pandas as pd
 
-def normalize_knoten(k):
-    return str(k) if str(k).startswith("A") else str(k).zfill(7)
+
+def normalize_id(id_str):
+    """Normalisiert IDs auf 7 Stellen mit führenden Nullen"""
+    return str(id_str).zfill(7)
+
 
 def calc_full_cost_structure(auftrag_nr: str) -> pd.DataFrame:
     session = Session()
-    from .models import Teil, Material, Maschine, Arbeitsplan
 
-    all_teile = session.query(Teil).all()
-    teil_map = {str(t.teil_id): t for t in all_teile}
-    children_map = defaultdict(list)
-    for t in all_teile:
-        if t.knoten:
-            knoten_key = normalize_knoten(t.knoten)
-            children_map[knoten_key].append(t)
+    try:
+        # Alle Teile mit Beziehungen laden
+        all_teile = session.query(Teil).options(
+            joinedload(Teil.material_obj),
+            joinedload(Teil.arbeitsplaene)
+        ).all()
 
-    def walk(teil: Teil, ebene: int, parent_anzahl: float) -> List[dict]:
-        teil_id = str(teil.teil_id).zfill(7)
-        teil_nr = teil.teil_nr
-        anzahl = teil.anzahl or 1
-        gesamt_anzahl = anzahl * parent_anzahl
-        mat_kost = teil.material_obj.kost if teil.mat and teil.material_obj else 0
-        mat_pos = mat_kost * gesamt_anzahl
-        mgk = mat_pos * 0.10
+        # Hierarchie-Struktur aufbauen
+        children_map = defaultdict(list)
+        for t in all_teile:
+            if t.knoten:
+                parent_id = normalize_id(t.knoten)
+                children_map[parent_id].append(t)
 
-        fert_kost = 0.0
-        ops = session.query(Arbeitsplan).filter_by(teil_id=teil_id).all()
-        for op in ops:
-            maschine = session.query(Maschine).get(op.maschine)
-            if maschine:
-                fert_kost += (op.dauer / 60) * maschine.ks
-        fert_pos = fert_kost * gesamt_anzahl
-        fgk = fert_pos * 0.10
-        kumuliert = mat_pos + mgk + fert_pos + fgk
+        # Rekursive Funktion für Kostenberechnung
+        def walk(teil: Teil, ebene: int, parent_anzahl: int) -> List[dict]:
+            teil_id = normalize_id(teil.teil_id)
+            anzahl = teil.anzahl or 1
+            gesamt_anzahl = anzahl * parent_anzahl
 
-        teil_id_str = str(teil.teil_id).zfill(7)
-        teil_nr_str = str(teil.teil_nr).zfill(4)
+            # Materialkosten berechnen
+            mat_kost = teil.material_obj.kost if teil.mat and teil.material_obj else 0.0
+            mat_pos = mat_kost * gesamt_anzahl
+            mgk = mat_pos * 0.10
 
-        result = [dict(
-            Position=f"Teil {teil_id_str}",
-            Ebene=ebene,
-            Anzahl=anzahl,
-            **{
+            # Fertigungskosten berechnen
+            fert_kost = 0.0
+            for op in teil.arbeitsplaene:
+                maschine = session.query(Maschine).get(op.maschine)
+                if maschine:
+                    hours = op.dauer / 60
+                    fert_kost += hours * maschine.ks
+            fert_pos = fert_kost * gesamt_anzahl
+            fgk = fert_pos * 0.10
+
+            # Gesamtkosten für diese Position
+            kumuliert = mat_pos + mgk + fert_pos + fgk
+
+            # Datensatz erstellen
+            record = {
+                "Position": f"Teil {teil_id}",
+                "Ebene": ebene,
+                "Anzahl": anzahl,
                 "Gesamt Anzahl": gesamt_anzahl,
                 "Mat. Einzel": mat_kost,
                 "Mat. Pos.": mat_pos,
                 "MGK": mgk,
                 "Fert. Pos.": fert_pos,
                 "FGK": fgk,
-                "Kumuliert": kumuliert,
+                "Kumuliert": kumuliert
             }
-        )]
 
-        teil_id_norm = str(teil.teil_id).zfill(7)
+            # Unterkomponenten verarbeiten
+            result = [record]
+            for child in children_map.get(teil_id, []):
+                result.extend(walk(child, ebene + 1, gesamt_anzahl))
 
-        for child in children_map.get(teil_id_norm, []):
-            result.extend(walk(child, ebene + 1, gesamt_anzahl))
+            return result
 
-        return result
-
-    table = [dict(
-        Position=f"Auftrag {auftrag_nr}",
-        Ebene=0,
-        Anzahl=1,
-        **{
+        # Start mit Auftragskopf
+        table = [{
+            "Position": f"Auftrag {auftrag_nr}",
+            "Ebene": 0,
+            "Anzahl": 1,
             "Gesamt Anzahl": 1,
             "Mat. Einzel": "",
             "Mat. Pos.": "",
@@ -76,51 +85,90 @@ def calc_full_cost_structure(auftrag_nr: str) -> pd.DataFrame:
             "Fert. Pos.": "",
             "FGK": "",
             "Kumuliert": ""
-        }
-    )]
+        }]
 
-    top_teile = session.query(Teil).filter_by(knoten=auftrag_nr).all()
-    for teil in top_teile:
-        table.extend(walk(teil, 1, 1))
+        # Top-Level-Komponenten verarbeiten
+        top_teile = [t for t in all_teile if t.knoten == auftrag_nr]
+        for teil in top_teile:
+            table.extend(walk(teil, 1, 1))
 
-    session.close()
-    return pd.DataFrame(table)
+        # DataFrame erstellen
+        df = pd.DataFrame(table)
+
+        # Gesamtsumme berechnen
+        total_sum = df["Kumuliert"].replace("", 0).sum()
+        total_row = pd.DataFrame([{
+            "Position": "GESAMT",
+            "Ebene": "",
+            "Anzahl": "",
+            "Gesamt Anzahl": "",
+            "Mat. Einzel": "",
+            "Mat. Pos.": "",
+            "MGK": "",
+            "Fert. Pos.": "",
+            "FGK": "",
+            "Kumuliert": total_sum
+        }])
+
+        return pd.concat([df, total_row], ignore_index=True)
+
+    finally:
+        session.close()
+
 
 def get_all_auftrag_ids() -> List[str]:
     session = Session()
-    rows = session.query(Auftrag.auftrag_nr).distinct().all()
-    session.close()
-    return [r[0] for r in rows]
+    try:
+        rows = session.query(Auftrag.auftrag_nr).distinct().all()
+        return [r[0] for r in rows]
+    finally:
+        session.close()
+
 
 def get_all_teil_ids() -> List[str]:
     session = Session()
-    rows = session.query(Teil.teil_id).distinct().all()
-    session.close()
-    return [r[0] for r in rows]
+    try:
+        rows = session.query(Teil.teil_id).distinct().all()
+        return [r[0] for r in rows]
+    finally:
+        session.close()
 
-def calc_cost(teil_id: str, session, parent_amount: float = 1, level: int = 0) -> dict:
-    teil_id = str(teil_id).zfill(7)
-    teil = session.query(Teil).options(joinedload(Teil.material_obj)).get(teil_id)
+
+def calc_cost(teil_id: str, session: Session, parent_amount: float = 1, level: int = 0) -> dict:
+    teil_id = normalize_id(teil_id)
+    teil = session.query(Teil).options(
+        joinedload(Teil.material_obj),
+        joinedload(Teil.arbeitsplaene)
+    ).get(teil_id)
+
     if not teil:
-        return {"teil_id": teil_id, "total": 0, "structure": [], "level": level}
+        return {
+            "teil_id": teil_id,
+            "total": 0,
+            "structure": [],
+            "level": level
+        }
 
-    direct_mat = teil.material_obj.kost if teil.mat and teil.material_obj else 0
+    # Materialkosten berechnen
+    direct_mat = teil.material_obj.kost if teil.mat and teil.material_obj else 0.0
     mgk = direct_mat * 0.10
 
+    # Fertigungskosten berechnen
     direct_fert = 0.0
-    operations = session.query(Arbeitsplan).filter_by(teil_id=teil_id).all()
-    for op in operations:
+    for op in teil.arbeitsplaene:
         maschine = session.query(Maschine).get(op.maschine)
         if maschine:
-            direct_fert += (op.dauer / 60) * maschine.ks
+            hours = op.dauer / 60
+            direct_fert += hours * maschine.ks
     fgk = direct_fert * 0.10
 
+    # Unterkomponenten verarbeiten
     children_cost = 0.0
     children_struct = []
 
     children = session.query(Teil).filter(Teil.knoten == teil_id).all()
     for child in children:
-        child_cost = calc_cost(str(child.teil_id).zfill(7), session, level=level+1)
+        child_cost = calc_cost(child.teil_id, session, level=level + 1)
         child_total = (child.anzahl or 1) * child_cost["total"]
         children_cost += child_total
 
@@ -134,6 +182,7 @@ def calc_cost(teil_id: str, session, parent_amount: float = 1, level: int = 0) -
             "struktur": child_cost.get("structure", [])
         })
 
+    # Gesamtkosten berechnen
     total = direct_mat + mgk + direct_fert + fgk + children_cost
 
     return {
@@ -149,36 +198,44 @@ def calc_cost(teil_id: str, session, parent_amount: float = 1, level: int = 0) -
         "structure": children_struct
     }
 
+
 def calc_order_cost(auftrag_nr: str) -> Dict:
     session = Session()
-    top_level_teile = session.query(Teil).filter_by(knoten=auftrag_nr).all()
+    try:
+        top_level_teile = session.query(Teil).filter_by(knoten=auftrag_nr).all()
 
-    positions = []
-    order_total = 0.0
-    for teil in top_level_teile:
-        cost = calc_cost(teil.teil_id, session)
-        anzahl = teil.anzahl or 1
-        total_component = cost["total"] * anzahl
+        positions = []
+        order_total = 0.0
 
-        positions.append({
-            "teil_id": teil.teil_id,
-            "teil_nr": teil.teil_nr,
-            "amount": anzahl,
-            "cost_per_unit": cost["total"],
-            "total_cost": total_component,
-            "structure": cost["structure"],
-            "details": {
-                "direct_material": cost["k_mat"],
-                "material_overhead": cost["mgk"],
-                "direct_production": cost["k_fert"],
-                "production_overhead": cost["fgk"],
-                "subcomponents_cost": cost["children_cost"]
-            }
-        })
-        order_total += total_component
+        for teil in top_level_teile:
+            cost = calc_cost(teil.teil_id, session)
+            anzahl = teil.anzahl or 1
+            total_component = cost["total"] * anzahl
 
-    session.close()
-    return {"auftrag_nr": auftrag_nr, "positions": positions, "order_total": order_total}
+            positions.append({
+                "teil_id": teil.teil_id,
+                "teil_nr": teil.teil_nr,
+                "amount": anzahl,
+                "cost_per_unit": cost["total"],
+                "total_cost": total_component,
+                "structure": cost["structure"],
+                "details": {
+                    "direct_material": cost["k_mat"],
+                    "material_overhead": cost["mgk"],
+                    "direct_production": cost["k_fert"],
+                    "production_overhead": cost["fgk"],
+                    "subcomponents_cost": cost["children_cost"]
+                }
+            })
+            order_total += total_component
+
+        return {
+            "auftrag_nr": auftrag_nr,
+            "positions": positions,
+            "order_total": order_total
+        }
+    finally:
+        session.close()
 
 def calc_machine_costs(order_nr: Optional[str] = None) -> Dict[str, float]:
     session = Session()

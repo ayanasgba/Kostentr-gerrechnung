@@ -36,7 +36,6 @@ def display_structure(structure, level=0):
 
 
 if mode == "Nach Position (Teil)":
-    @st.cache_data
     def load_ids():
         return get_all_teil_ids()
 
@@ -64,7 +63,6 @@ if mode == "Nach Position (Teil)":
             session.close()
 
 elif mode == "Nach Auftrag":
-    @st.cache_data
     def load_orders():
         return get_all_auftrag_ids()
 
@@ -97,7 +95,6 @@ elif mode == "Nach Auftrag":
             session.close()
 
 elif mode == "Detaillierte Tabelle nach Auftrag":
-    @st.cache_data
     def load_orders():
         return get_all_auftrag_ids()
 
@@ -112,7 +109,7 @@ elif mode == "Detaillierte Tabelle nach Auftrag":
             st.subheader(f"Detaillierte Kostenstruktur für Auftrag {auftrag}")
 
             # Formatierung der numerischen Spalten
-            numeric_cols = ["Gesamt Anzahl", "Mat. Einzel", "Mat. Pos.", "MGK", "Fert. Pos.", "FGK", "Kumuliert"]
+            numeric_cols = ["Anzahl", "Gesamt Anzahl", "Mat. Einzel", "Mat. Pos.", "MGK", "Fert. Pos.", "FGK", "Gemeinkosten"]
             for col in numeric_cols:
                 if col in df.columns:
                     df[col] = df[col].apply(
@@ -137,8 +134,8 @@ elif mode == "Detaillierte Tabelle nach Auftrag":
 
             # Gesamtsumme extra anzeigen
             total_row = df[df["Position"] == "GESAMT"].iloc[0]
-            total_value = total_row["Kumuliert"]
-            st.success(f"## Gesamtsumme des Auftrags: {total_value} €")
+            total_value = total_row["Gemeinkosten"]
+            st.success(f"## Gesamtsumme des Auftrags: {format_de(total_value)} €")
         finally:
             session.close()
 

@@ -17,7 +17,7 @@ st.title("Kostenträgerrechnung")
 
 mode = st.radio(
     "Bitte wählen Sie einen Modus",
-    ["Nach Position (Teil)", "Nach Auftrag", "Detaillierte Tabelle nach Auftrag", "Daten eingeben"]
+    ["Detaillierte Tabelle nach Auftrag", "Daten eingeben"]
 )
 
 
@@ -35,66 +35,7 @@ def display_structure(structure, level=0):
             display_structure(teil["struktur"], level + 1)
 
 
-if mode == "Nach Position (Teil)":
-    def load_ids():
-        return get_all_teil_ids()
-
-
-    ids = load_ids()
-    teil = st.selectbox("Wählen Sie die Teile-ID aus", ids)
-    teil = str(teil).zfill(7)
-
-    if st.button("Berechnen"):
-        session = Session()
-        try:
-            res = calc_cost(teil, session)
-            col1, col2 = st.columns(2)
-            col1.metric("Direkte Materialkosten", f"{res['k_mat']:.2f} €")
-            col1.metric("Materialgemeinkosten (10%)", f"{res['mgk']:.2f} €")
-            col2.metric("Direkte Fertigungskosten", f"{res['k_fert']:.2f} €")
-            col2.metric("Fertigungsgemeinkosten (10%)", f"{res['fgk']:.2f} €")
-            st.markdown("---")
-            st.markdown(f"## Summe: {res['total']:.2f} €")
-
-            if res['structure']:
-                st.subheader("Komponentenstruktur")
-                display_structure(res['structure'])
-        finally:
-            session.close()
-
-elif mode == "Nach Auftrag":
-    def load_orders():
-        return get_all_auftrag_ids()
-
-
-    orders = load_orders()
-    auftrag = st.selectbox("Wählen Sie einen Auftrag", orders)
-
-    if st.button("Berechnen"):
-        session = Session()
-        try:
-            oc = calc_order_cost(auftrag)
-            st.subheader(f"📦 Auftragspositionen: **{auftrag}**")
-
-            for p in oc["positions"]:
-                with st.expander(f"Teil {p['teil_id']} ({p['amount']}x) – Gesamt: {format_de(p['total_cost'])} €"):
-                    st.markdown(f"**Einzelpreis**: {format_de(p['cost_per_unit'])} €")
-                    st.markdown(f"**Direktmaterial**: {format_de(p['details']['direct_material'])} €")
-                    st.markdown(f"**Materialgemeinkosten (10%)**: {format_de(p['details']['material_overhead'])} €")
-                    st.markdown(f"**Direkte Fertigung**: {format_de(p['details']['direct_production'])} €")
-                    st.markdown(f"**Fertigungsgemeinkosten (10%)**: {format_de(p['details']['production_overhead'])} €")
-                    st.markdown(f"**Kosten Subkomponenten**: {format_de(p['details']['subcomponents_cost'])} €")
-
-                    if p["structure"]:
-                        st.markdown("**🔽 Komponentenstruktur:**")
-                        display_structure(p["structure"])
-
-            st.markdown("---")
-            st.markdown(f"## 💰 Gesamtkosten Auftrag: {format_de(oc['order_total'])} €")
-        finally:
-            session.close()
-
-elif mode == "Detaillierte Tabelle nach Auftrag":
+if mode == "Detaillierte Tabelle nach Auftrag":
     def load_orders():
         return get_all_auftrag_ids()
 
@@ -109,7 +50,7 @@ elif mode == "Detaillierte Tabelle nach Auftrag":
             st.subheader(f"Detaillierte Kostenstruktur für Auftrag {auftrag}")
 
             # Formatierung der numerischen Spalten
-            numeric_cols = ["Anzahl", "Gesamt Anzahl", "Mat. Einzel", "Mat. Pos.", "MGK", "Fert. Pos.", "FGK", "Gemeinkosten"]
+            numeric_cols = ["Anzahl", "Gesamt Anzahl", "Mat. Einzel", "Mat. Pos.", "MGK", "Fert. Pos.", "FGK", "Gesamtkosten"]
             for col in numeric_cols:
                 if col in df.columns:
                     df[col] = df[col].apply(
@@ -134,7 +75,7 @@ elif mode == "Detaillierte Tabelle nach Auftrag":
 
             # Gesamtsumme extra anzeigen
             total_row = df[df["Position"] == "GESAMT"].iloc[0]
-            total_value = total_row["Gemeinkosten"]
+            total_value = total_row["Gesamtkosten"]
             st.success(f"## Gesamtsumme des Auftrags: {format_de(total_value)} €")
         finally:
             session.close()

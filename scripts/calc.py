@@ -63,7 +63,7 @@ def calc_full_cost_structure(auftrag_nr: str) -> pd.DataFrame:
                 "MGK": mgk,
                 "Fert. Pos.": fert_pos,
                 "FGK": fgk,
-                "Gemeinkosten": kumuliert
+                "Gesamtkosten": kumuliert
             }
 
             # Unterkomponenten verarbeiten
@@ -84,7 +84,7 @@ def calc_full_cost_structure(auftrag_nr: str) -> pd.DataFrame:
             "MGK": "",
             "Fert. Pos.": "",
             "FGK": "",
-            "Gemeinkosten": ""
+            "Gesamtkosten": ""
         }]
 
         # Top-Level-Komponenten verarbeiten
@@ -96,7 +96,7 @@ def calc_full_cost_structure(auftrag_nr: str) -> pd.DataFrame:
         df = pd.DataFrame(table)
 
         # Gesamtsumme berechnen
-        total_sum = df["Gemeinkosten"].replace("", 0).sum()
+        total_sum = df["Gesamtkosten"].replace("", 0).sum()
         total_row = pd.DataFrame([{
             "Position": "GESAMT",
             "Ebene": "",
@@ -107,7 +107,7 @@ def calc_full_cost_structure(auftrag_nr: str) -> pd.DataFrame:
             "MGK": "",
             "Fert. Pos.": "",
             "FGK": "",
-            "Gemeinkosten": total_sum
+            "Gesamtkosten": total_sum
         }])
 
         return pd.concat([df, total_row], ignore_index=True)
